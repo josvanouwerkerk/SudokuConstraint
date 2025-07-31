@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36301.6 d17.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SudokuConstraint", "SudokuConstraint.csproj", "{091BC544-2D97-427F-8441-4D87E7AF6915}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{091BC544-2D97-427F-8441-4D87E7AF6915}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{091BC544-2D97-427F-8441-4D87E7AF6915}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{091BC544-2D97-427F-8441-4D87E7AF6915}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{091BC544-2D97-427F-8441-4D87E7AF6915}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {77A16AD7-627A-4E13-A772-F6CB93C3274C}
+	EndGlobalSection
+EndGlobal

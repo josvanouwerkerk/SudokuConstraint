@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "SudokuConstraint": {
+      "commandName": "Project",
+      "commandLineArgs": "D:\\Repos\\medium.txt 13"
+    }
+  }
+}
