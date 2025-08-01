@@ -5,29 +5,19 @@ namespace SudokuConstraint;
 
 internal class Program
 {
-    static void Main(string[] args)
+    public static void Main(string[] args)
     {
-        if (args.Length == 0)
-        {
-            Console.WriteLine("Program <input_file> [<sudoku_offset>] [<output_file>]");
-            // TODO: More information on file format
+        if (GetConfiguration(args) is not { } configuration)
             return;
-        }
 
-        var input = args[0];
-        var offset = args.Length > 1 && int.TryParse(args[1], out var parsed) ? parsed : 0;
-        var output = args.Length > 2 ? args[2] : $"{input[..^4]}_solved.txt";
-
-        //Console.WriteLine("Waiting 10 seconds before starting...");
-        //Thread.Sleep(TimeSpan.FromSeconds(10));
-        Console.WriteLine($"Started solving Sudoku's as CSP from {input} to {output} with offset {offset}");
+        Console.WriteLine($"Started solving Sudoku's as Constraint Satisfaction Problem\n{configuration}");
 
         var stopwatch = new Stopwatch();
         stopwatch.Start();
 
         var lookup = CreateLookup();
         var count = 0;
-        File.WriteAllLines(output, File.ReadLines(input).AsParallel().AsOrdered().Select(line => Solve(lookup, line, offset, ref count)));
+        File.WriteAllLines(configuration.Output, File.ReadLines(configuration.Input).AsParallel().AsOrdered().Select(line => Solve(lookup, line, configuration.Offset, ref count)));
 
         stopwatch.Stop();
 
@@ -35,17 +25,48 @@ internal class Program
         Console.WriteLine($"Solved {count} Sudoku's in {stopwatch.ElapsedMilliseconds}ms, {perSecond} per second");
     }
 
+    private static Configuration? GetConfiguration(string[] args)
+    {
+        if (args.Length == 0)
+        {
+            Console.WriteLine("Usage: Program <input_file> [<sudoku_offset>] [<output_file>]");
+            Console.WriteLine();
+            Console.WriteLine("Solves Sudoku's as Constraint Satisfaction Problem");
+            Console.WriteLine("Input file should contain one Sudoku on each line");
+            Console.WriteLine("Input Sudoku should consist of 81 characters, with the character '1' to '9' for filled in values");
+            Console.WriteLine("Offset defaults to 0 and denotes where the Sudoku start on each line");
+            Console.WriteLine("Output file will contain the same lines as the input, but with the Sudoku solved");
+            Console.WriteLine("Output file defaults to the input file with a \"_solved\" suffix");
+            return null;
+        }
+
+        var input = args[0];
+
+        if (!File.Exists(input))
+        {
+            Console.WriteLine($"Can't find input file {input}");
+            return null;
+        }
+
+        var offset = args.Length > 1 && int.TryParse(args[1], out var parsed) ? parsed : 0;
+        var inputDot = input.LastIndexOf('.');
+        var output = args.Length > 2 ? args[2] : $"{input[..inputDot]}_solved{input[inputDot..]}";
+
+        return new(input, offset, output);
+    }
+
     private static ReadOnlyMemory<int> CreateLookup()
     {
         // Creates a lookup from each of the 81 variables to the 3 groups of 8 affected variables in the same row, column and group
+        // The last 4 values are overlapped between two groups
         var lookup = new int[81 * 24];
 
         for (var variable = 0; variable < 81; variable++)
         {
             var indexRow = 24 * variable;
             var indexColumn = indexRow + 8;
-            // TODO: Split to 4 without overlap and 4 with
             var indexGroup = indexColumn + 8;
+            var indexGroupOverlap = indexGroup + 4;
 
             for (var affectedVariable = 0; affectedVariable < 81; affectedVariable++)
             {
@@ -64,7 +85,14 @@ internal class Program
 
                 if ((affectedVariable % 9 / 3 == variable % 9 / 3) && (affectedVariable / 9 / 3 == variable / 9 / 3))
                 {
-                    lookup[indexGroup++] = affectedVariable;
+                    if ((affectedVariable % 9 == variable % 9) || (affectedVariable / 9 == variable / 9))
+                    {
+                        lookup[indexGroupOverlap++] = affectedVariable;
+                    }
+                    else
+                    {
+                        lookup[indexGroup++] = affectedVariable;
+                    }
                 }
             }
         }
@@ -113,12 +141,6 @@ internal class Program
         for (var variable = 0; variable < 81; variable++)
         {
             sudokuOutput[variable] = (char)('1' + BitOperations.TrailingZeroCount(sudoku[variable]));
-
-            // TODO: Can be removed when all are solved
-            if (BitOperations.PopCount(sudoku[variable]) != 1)
-            {
-                sudokuOutput[variable] = '0';
-            }
         }
 
         Interlocked.Increment(ref count);
@@ -201,15 +223,6 @@ internal class Program
         return options;
     }
 
-    private struct Information : IComparable<Information>
-    {
-        public int Index;
-        public int Options;
-        public int Unsolved;
-
-        public readonly int CompareTo(Information other) => other.Options.CompareTo(Options);
-    }
-
     private static int Constrain(ReadOnlyMemory<int> lookup, Span<uint> sudoku, int variable, uint values)
     {
         var before = sudoku[variable];
@@ -233,9 +246,7 @@ internal class Program
             count++;
 
             // TODO: Faster without lookup?
-
-            // TODO: Only first 20 have no overlap
-            for (var affectedIndex = 0; affectedIndex < 24; affectedIndex++)
+            for (var affectedIndex = 0; affectedIndex < 20; affectedIndex++)
             {
                 var affectedCount = Constrain(lookup, sudoku, variableLookup[affectedIndex], ~after);
                 if (affectedCount < 0)
@@ -302,10 +313,31 @@ internal class Program
         return count;
     }
 
+    private record Configuration(string Input, int Offset, string Output)
+    {
+        public override string ToString() => $"Input file: {Input}\nOutput file: {Output}\nOffset to sudoku for each line: {Offset}";
+    }
+
+    private struct Information : IComparable<Information>
+    {
+        public int Index;
+        public int Options;
+        public int Unsolved;
+
+        public readonly int CompareTo(Information other) => other.Options.CompareTo(Options);
+    }
+
 #if DEBUG
     private static void Validate(ReadOnlySpan<char> input, Span<uint> solved)
     {
-        // Matching filled in values
+        ValidateInput(input, solved);
+        ValidateRows(solved);
+        ValidateColumns(solved);
+        ValidateGroups(solved);
+    }
+
+    private static void ValidateInput(ReadOnlySpan<char> input, Span<uint> solved)
+    {
         for (var variable = 0; variable < 81; variable++)
         {
             var current = input[variable] - '1';
@@ -314,8 +346,10 @@ internal class Program
 
             Debug.Assert(solved[variable] == 1U << current);
         }
+    }
 
-        // No duplicates in rows
+    private static void ValidateRows(Span<uint> solved)
+    {
         for (var y = 0; y < 9; y++)
         {
             var count = 0U;
@@ -325,8 +359,10 @@ internal class Program
             }
             Debug.Assert(count == (1U << 9) - 1U);
         }
+    }
 
-        // No duplicates in columns
+    private static void ValidateColumns(Span<uint> solved)
+    {
         for (var x = 0; x < 9; x++)
         {
             var count = 0U;
@@ -336,8 +372,10 @@ internal class Program
             }
             Debug.Assert(count == (1U << 9) - 1U);
         }
+    }
 
-        // No duplicates in groups
+    private static void ValidateGroups(Span<uint> solved)
+    {
         for (var group = 0; group < 9; group++)
         {
             var gx = 3 * (group % 3);
