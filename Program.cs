@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 
 namespace SudokuConstraint;
 
@@ -140,7 +141,7 @@ internal class Program
 
         for (var variable = 0; variable < 81; variable++)
         {
-            sudokuOutput[variable] = (char)('1' + BitOperations.TrailingZeroCount(sudoku[variable]));
+            sudokuOutput[variable] = (char)('1' + GetFirstOption(sudoku[variable]));
         }
 
         Interlocked.Increment(ref count);
@@ -155,7 +156,7 @@ internal class Program
 
         for (var variable = 0; variable < sudoku.Length; variable++)
         {
-            var current = BitOperations.PopCount(sudoku[variable]);
+            var current = GetOptionCount(sudoku[variable]);
             if (current < 2 || current >= options)
                 continue;
 
@@ -177,7 +178,7 @@ internal class Program
             var currentSudoku = newSudokus[(valueIndex * 81)..][..81];
             sudoku.CopyTo(currentSudoku);
 
-            var childCount = Constrain(lookup, currentSudoku, mostConstrained, value & (0U - value));
+            var childCount = Constrain(lookup, currentSudoku, mostConstrained, GetFirstOptionMask(value));
             if (childCount >= 0)
             {
                 if (information[valueIndex].Unsolved == childCount)
@@ -187,10 +188,10 @@ internal class Program
                 }
 
                 information[valueIndex].Unsolved -= childCount;
-                information[valueIndex].Options = GetOptions(currentSudoku);
+                information[valueIndex].Options = GetOptionCount(currentSudoku);
             }
 
-            value &= value - 1U;
+            value = ResetFirstOption(value);
             valueIndex++;
         }
 
@@ -213,16 +214,6 @@ internal class Program
         return false;
     }
 
-    private static int GetOptions(Span<uint> sudoku)
-    {
-        var options = 0;
-        for (var i = 0; i < sudoku.Length; i++)
-        {
-            options += BitOperations.PopCount(sudoku[i]);
-        }
-        return options;
-    }
-
     private static int Constrain(ReadOnlyMemory<int> lookup, Span<uint> sudoku, int variable, uint values)
     {
         var before = sudoku[variable];
@@ -231,7 +222,7 @@ internal class Program
         if (before == after) // No change
             return 0;
 
-        var valueCount = BitOperations.PopCount(after);
+        var valueCount = GetOptionCount(after);
         if (valueCount == 0) // Invalid, no values available anymore
             return -1;
 
@@ -266,7 +257,7 @@ internal class Program
             for (var affectedIndex = 0; affectedIndex < 8; affectedIndex++)
             {
                 var value = sudoku[groupLookup[affectedIndex]];
-                if (BitOperations.IsPow2(value))
+                if (HasSingleOption(value))
                 {
                     twoSet |= value;
                 }
@@ -306,18 +297,45 @@ internal class Program
                 set |= sudoku[groupLookup[affectedIndex]];
             }
 
-            if (BitOperations.PopCount(set) < 9)
+            if (GetOptionCount(set) < 9)
                 return -1;
         }
 
         return count;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int GetOptionCount(uint options) => BitOperations.PopCount(options);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int GetOptionCount(Span<uint> sudoku)
+    {
+        var options = 0;
+        for (var i = 0; i < sudoku.Length; i++)
+        {
+            options += GetOptionCount(sudoku[i]);
+        }
+        return options;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool HasSingleOption(uint options) => BitOperations.IsPow2(options);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int GetFirstOption(uint options) => BitOperations.TrailingZeroCount(options);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static uint GetFirstOptionMask(uint options) => options & (0U - options);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static uint ResetFirstOption(uint options) => options & (options - 1U);
+
     private record Configuration(string Input, int Offset, string Output)
     {
         public override string ToString() => $"Input file: {Input}\nOutput file: {Output}\nOffset to sudoku for each line: {Offset}";
     }
 
+    // TODO: Replace with ref struct Sudoku with values and unsolved
     private struct Information : IComparable<Information>
     {
         public int Index;
