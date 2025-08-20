@@ -1,11 +1,16 @@
 ﻿using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace SudokuConstraint;
 
 internal class Program
 {
+    private const int Variables = 9 * 9;
+    private const int DataVariables = Variables;
+    private const int Data = DataVariables;
+
     public static void Main(string[] args)
     {
         if (GetConfiguration(args) is not { } configuration)
@@ -34,7 +39,7 @@ internal class Program
             Console.WriteLine();
             Console.WriteLine("Solves Sudoku's as Constraint Satisfaction Problem");
             Console.WriteLine("Input file should contain one Sudoku on each line");
-            Console.WriteLine("Input Sudoku should consist of 81 characters, with the character '1' to '9' for filled in values");
+            Console.WriteLine("Input Sudoku should consist of 81 characters, with the characters '1' to '9' for filled in values");
             Console.WriteLine("Offset defaults to 0 and denotes where the Sudoku start on each line");
             Console.WriteLine("Output file will contain the same lines as the input, but with the Sudoku solved");
             Console.WriteLine("Output file defaults to the input file with a \"_solved\" suffix");
@@ -60,16 +65,16 @@ internal class Program
     {
         // Creates a lookup from each of the 81 variables to the 3 groups of 8 affected variables in the same row, column and group
         // The last 4 values are overlapped between two groups
-        var lookup = new int[81 * 24];
+        var lookup = new int[Variables * 24];
 
-        for (var variable = 0; variable < 81; variable++)
+        for (var variable = 0; variable < Variables; variable++)
         {
             var indexRow = 24 * variable;
             var indexColumn = indexRow + 8;
             var indexGroup = indexColumn + 8;
             var indexGroupOverlap = indexGroup + 4;
 
-            for (var affectedVariable = 0; affectedVariable < 81; affectedVariable++)
+            for (var affectedVariable = 0; affectedVariable < Variables; affectedVariable++)
             {
                 if (affectedVariable == variable)
                     continue;
@@ -103,15 +108,15 @@ internal class Program
 
     private static string Solve(ReadOnlyMemory<int> lookup, string input, int offset, ref int count)
     {
-        if (input.Length < offset + 81)
+        if (input.Length < offset + Variables)
             return input;
 
         var sudokuInput = input.AsSpan()[offset..];
-        var sudoku = (Span<uint>)stackalloc uint[81]; // Possible value options
-        sudoku.Fill((1U << 9) - 1U); // Initialize to all 9 values possible for each variable
+        var sudoku = new Sudoku(stackalloc uint[Data]);
+        sudoku.Initialize();
 
-        var unsolved = 81; // Keep track of number of unsolved
-        for (var variable = 0; variable < 81; variable++)
+        var unsolved = Variables; // Keep track of number of unsolved
+        for (var variable = 0; variable < Variables; variable++)
         {
             var current = sudokuInput[variable] - '1'; // Convert the digits '0' to '9' to numbers -1 to 8
             current = current < -1 || current >= 9 ? -1 : current;
@@ -122,24 +127,18 @@ internal class Program
             }
         }
 
-#if DEBUG
         if (unsolved > 0)
         {
-            Debug.Assert(BackTrack(lookup, sudoku, unsolved));
+            var solved = BackTrack(lookup, sudoku, unsolved);
+            Debug.Assert(solved);
         }
-        Validate(sudokuInput, sudoku);
-#else
-        if (unsolved > 0)
-        {
-            Solve(lookup, sudoku, unsolved)
-        }
-#endif
+        Debug.Assert(Validate(sudokuInput, sudoku));
 
         var output = (Span<char>)stackalloc char[input.Length];
         input.CopyTo(output);
         var sudokuOutput = output[offset..];
 
-        for (var variable = 0; variable < 81; variable++)
+        for (var variable = 0; variable < Variables; variable++)
         {
             sudokuOutput[variable] = (char)('1' + GetFirstOption(sudoku[variable]));
         }
@@ -149,12 +148,12 @@ internal class Program
         return new string(output);
     }
 
-    private static bool BackTrack(ReadOnlyMemory<int> lookup, Span<uint> sudoku, int unsolved)
+    private static bool BackTrack(ReadOnlyMemory<int> lookup, Sudoku sudoku, int unsolved)
     {
         var mostConstrained = -1;
         var options = 10;
 
-        for (var variable = 0; variable < sudoku.Length; variable++)
+        for (var variable = 0; variable < Variables; variable++)
         {
             var current = GetOptionCount(sudoku[variable]);
             if (current < 2 || current >= options)
@@ -165,7 +164,7 @@ internal class Program
 
         var value = sudoku[mostConstrained];
 
-        var newSudokus = (Span<uint>)stackalloc uint[81 * options];
+        var newSudokus = (Span<uint>)stackalloc uint[Data * options];
         var information = (Span<Information>)stackalloc Information[options];
 
         var valueIndex = 0;
@@ -175,7 +174,7 @@ internal class Program
             information[valueIndex].Index = valueIndex;
             information[valueIndex].Unsolved = unsolved;
 
-            var currentSudoku = newSudokus[(valueIndex * 81)..][..81];
+            var currentSudoku = new Sudoku(newSudokus[(valueIndex * Data)..][..Data]);
             sudoku.CopyTo(currentSudoku);
 
             var childCount = Constrain(lookup, currentSudoku, mostConstrained, GetFirstOptionMask(value));
@@ -188,7 +187,7 @@ internal class Program
                 }
 
                 information[valueIndex].Unsolved -= childCount;
-                information[valueIndex].Options = GetOptionCount(currentSudoku);
+                information[valueIndex].Options = currentSudoku.OptionCount;
             }
 
             value = ResetFirstOption(value);
@@ -202,7 +201,7 @@ internal class Program
             if (information[i].Options == 0)
                 continue;
 
-            var currentSudoku = newSudokus[(information[i].Index * 81)..][..81];
+            var currentSudoku = new Sudoku(newSudokus[(information[i].Index * Data)..][..Data]);
 
             if (!BackTrack(lookup, currentSudoku, information[i].Unsolved))
                 continue;
@@ -214,7 +213,7 @@ internal class Program
         return false;
     }
 
-    private static int Constrain(ReadOnlyMemory<int> lookup, Span<uint> sudoku, int variable, uint values)
+    private static int Constrain(ReadOnlyMemory<int> lookup, Sudoku sudoku, int variable, uint values)
     {
         var before = sudoku[variable];
         var after = before & values;
@@ -308,15 +307,7 @@ internal class Program
     private static int GetOptionCount(uint options) => BitOperations.PopCount(options);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static int GetOptionCount(Span<uint> sudoku)
-    {
-        var options = 0;
-        for (var i = 0; i < sudoku.Length; i++)
-        {
-            options += GetOptionCount(sudoku[i]);
-        }
-        return options;
-    }
+    private static int GetOptionCount(ulong options) => BitOperations.PopCount(options);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool HasSingleOption(uint options) => BitOperations.IsPow2(options);
@@ -335,38 +326,94 @@ internal class Program
         public override string ToString() => $"Input file: {Input}\nOutput file: {Output}\nOffset to sudoku for each line: {Offset}";
     }
 
-    // TODO: Replace with ref struct Sudoku with values and unsolved
+    private readonly ref struct Sudoku
+    {
+        public readonly Span<uint> Data;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public Sudoku(Span<uint> data)
+        {
+            Debug.Assert(data.Length == Program.Data);
+            Data = data;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Initialize()
+        {
+            Data[..DataVariables].Fill((1U << 9) - 1U); // Initialize to all 9 values possible for each variable
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void CopyTo(Sudoku destination)
+        {
+            Data.CopyTo(destination.Data);
+            //Unsolved = Variables;
+        }
+
+        public uint this[int index]
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => Data[index];
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            set => Data[index] = value;
+        }
+
+        /*public int Unsolved
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => (int)Data[^1];
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            set => Data[^1] = (uint)value;
+        }*/
+
+        public int OptionCount
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get
+            {
+                var options = 0;
+                var data64 = MemoryMarshal.Cast<uint, ulong>(Data);
+                for (var i = 0; i < data64.Length; i++)
+                {
+                    options += GetOptionCount(data64[i]);
+                }
+                options += GetOptionCount(Data[^1]);
+                return options;
+            }
+        }
+    }
+
     private struct Information : IComparable<Information>
     {
         public int Index;
         public int Options;
+        // TODO: Unsolved to Sudoku
         public int Unsolved;
 
         public readonly int CompareTo(Information other) => other.Options.CompareTo(Options);
     }
 
-#if DEBUG
-    private static void Validate(ReadOnlySpan<char> input, Span<uint> solved)
+    private static bool Validate(ReadOnlySpan<char> input, Sudoku solved)
     {
-        ValidateInput(input, solved);
-        ValidateRows(solved);
-        ValidateColumns(solved);
-        ValidateGroups(solved);
+        return ValidateInput(input, solved) && ValidateRows(solved) && ValidateColumns(solved) && ValidateGroups(solved);
     }
 
-    private static void ValidateInput(ReadOnlySpan<char> input, Span<uint> solved)
+    private static bool ValidateInput(ReadOnlySpan<char> input, Sudoku solved)
     {
-        for (var variable = 0; variable < 81; variable++)
+        for (var variable = 0; variable < Variables; variable++)
         {
             var current = input[variable] - '1';
             if (current < 0 || current >= 9)
                 continue;
 
-            Debug.Assert(solved[variable] == 1U << current);
+            if (solved[variable] != 1U << current)
+                return false;
         }
+
+        return true;
     }
 
-    private static void ValidateRows(Span<uint> solved)
+    private static bool ValidateRows(Sudoku solved)
     {
         for (var y = 0; y < 9; y++)
         {
@@ -375,11 +422,15 @@ internal class Program
             {
                 count ^= solved[y * 9 + x];
             }
-            Debug.Assert(count == (1U << 9) - 1U);
+
+            if (count != (1U << 9) - 1U)
+                return false;
         }
+
+        return true;
     }
 
-    private static void ValidateColumns(Span<uint> solved)
+    private static bool ValidateColumns(Sudoku solved)
     {
         for (var x = 0; x < 9; x++)
         {
@@ -388,11 +439,15 @@ internal class Program
             {
                 count ^= solved[y * 9 + x];
             }
-            Debug.Assert(count == (1U << 9) - 1U);
+
+            if (count != (1U << 9) - 1U)
+                return false;
         }
+
+        return true;
     }
 
-    private static void ValidateGroups(Span<uint> solved)
+    private static bool ValidateGroups(Sudoku solved)
     {
         for (var group = 0; group < 9; group++)
         {
@@ -407,8 +462,11 @@ internal class Program
 
                 count ^= solved[(gy + ey) * 9 + gx + ex];
             }
-            Debug.Assert(count == (1U << 9) - 1U);
+
+            if (count != (1U << 9) - 1U)
+                return false;
         }
+
+        return true;
     }
-#endif
 }
