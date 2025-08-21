@@ -28,6 +28,15 @@ internal class Program
         Console.WriteLine($"Solved {count} Sudoku's in {stopwatch.ElapsedMilliseconds}ms, {perSecond} per second");
     }
 
+    private record Configuration(string Input, int Offset, string Output)
+    {
+        public override string ToString() => $"Input file: {Input}\nOutput file: {Output}\nOffset to sudoku for each line: {Offset}";
+    }
+
+    /// <summary>
+    /// Attempts to create the program configuration from the arguments.
+    /// Displays an explanation in the console if this creation fails.
+    /// </summary>
     private static Configuration? GetConfiguration(string[] args)
     {
         if (args.Length == 0)
@@ -58,6 +67,10 @@ internal class Program
         return new(input, offset, output);
     }
 
+    /// <summary>
+    /// Solves a single Sudoku as supplied by inputLine at the given offset in the line.
+    /// After solving, increments the supplied count.
+    /// </summary>
     private static string Solve(string inputLine, int offset, ref int count)
     {
         if (inputLine.Length < offset + Variables)
@@ -80,7 +93,7 @@ internal class Program
             var solved = BackTrack(sudoku);
             Debug.Assert(solved);
         }
-        Debug.Assert(sudoku.Valid(input));
+        Debug.Assert(sudoku.Valid(input)); // Validate the solution only in Debug mode.
 
         var outputLine = (Span<char>)stackalloc char[inputLine.Length];
         inputLine.CopyTo(outputLine);
@@ -96,6 +109,12 @@ internal class Program
         return new string(outputLine);
     }
 
+    /// <summary>
+    /// Finds the most contrained variable and tries all options for this variable.
+    /// The options are ordered from least constraining to most constraining.
+    /// Recursively calls itself while the Sudoku isn't fully solved yet.
+    /// Only returns true if the Sudoku is fully solved.
+    /// </summary>
     private static bool BackTrack(Sudoku sudoku)
     {
         var mostConstrained = -1;
@@ -111,7 +130,7 @@ internal class Program
         }
 
         Debug.Assert(mostConstrained >= 0);
-        var options = sudoku[mostConstrained];
+        var options = sudoku[mostConstrained]; // Select the most constrained variable
 
         var newData = (Span<uint>)stackalloc uint[Sudoku.Length * optionCount];
         var newIndices = (Span<int>)stackalloc int[optionCount];
@@ -134,7 +153,7 @@ internal class Program
                     return true;
                 }
 
-                newOptions[index] = newSudoku.OptionCount;
+                newOptions[index] = newSudoku.OptionCount; // Obtain all available options to sort by least constraining option
             }
 
             Variable.ResetFirstOption(ref options);
@@ -162,6 +181,11 @@ internal class Program
         return false;
     }
 
+    /// <summary>
+    /// Constrains the selected variable using the provided mask.
+    /// Recusively calls itself if the selected variable has one option left, affecting other variables.
+    /// Only returns true if the constraining doesn't lead to an invalid set of variables.
+    /// </summary>
     private static bool Constrain(Sudoku sudoku, int variable, Variable mask)
     {
         var before = sudoku[variable];
@@ -171,35 +195,36 @@ internal class Program
             return true;
 
         var optionCount = after.OptionCount;
-        if (optionCount == 0) // Invalid, no values available anymore
+        if (optionCount == 0) // Invalid, no options available for this variable
             return false;
 
         sudoku[variable] = after;
 
         if (optionCount == 1)
         {
-            sudoku.Unsolved--;
+            sudoku.Unsolved--; // With one option left, the variable is solved
+            var affectedMask = ~after;
 
-            var column = variable % 9;
+            var column = variable % 9; // Remove option from others in the same column
             for (var affected = column; affected < Variables; affected += 9)
             {
-                if (affected != variable && !Constrain(sudoku, affected, ~after))
+                if (affected != variable && !Constrain(sudoku, affected, affectedMask))
                     return false;
             }
 
-            var row = variable / 9 * 9;
+            var row = variable / 9 * 9; // Remove option from others in the same row
             for (var affected = row; affected < row + 9; affected++)
             {
-                if (affected != variable && !Constrain(sudoku, affected, ~after))
+                if (affected != variable && !Constrain(sudoku, affected, affectedMask))
                     return false;
             }
 
-            var group = column / 3 * 3 + variable / 27 * 27;
+            var group = column / 3 * 3 + variable / 27 * 27; // Remove option from others in the same group
             for (var vertical = group; vertical < group + 27; vertical += 9)
             {
                 for (var affected = vertical; affected < vertical + 3; affected++)
                 {
-                    if (affected != variable && !Constrain(sudoku, affected, ~after))
+                    if (affected != variable && !Constrain(sudoku, affected, affectedMask))
                         return false;
                 }
             }
@@ -208,11 +233,10 @@ internal class Program
         return true;
     }
 
-    private record Configuration(string Input, int Offset, string Output)
-    {
-        public override string ToString() => $"Input file: {Input}\nOutput file: {Output}\nOffset to sudoku for each line: {Offset}";
-    }
-
+    /// <summary>
+    /// Syntactic sugar representing the options that are still possible for a variable.
+    /// The options are stored in the lowest 9 bits of an uint.
+    /// </summary>
     private readonly record struct Variable(uint Options)
     {
         public const uint Mask = (1U << 9) - 1U;
@@ -232,7 +256,7 @@ internal class Program
         public Variable FirstOption
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => new(Options & (0U - Options));
+            get => new(Options & (0U - Options)); // Bit manipulation that returns the lowest set bit
         }
 
         public char Character
@@ -248,7 +272,10 @@ internal class Program
         public override string ToString() => $"{Options:B9}";
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void ResetFirstOption(ref Variable variable) => variable &= new Variable(variable.Options - 1U);
+        public static void ResetFirstOption(ref Variable variable)
+        {
+            variable &= new Variable(variable.Options - 1U); // Bit manipulation that clears the lowest set bit
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool Parse(char character, out Variable variable)
@@ -256,11 +283,11 @@ internal class Program
             var option = character - '1'; // Convert the digits '0' to '9' to numbers -1 to 8
             if (option >= 0 && option < 9)
             {
-                variable = new(1U << option);
+                variable = new(1U << option); // Single option if '1' to '9'
                 return true;
             }
 
-            variable = new(Mask);
+            variable = new(Mask); // All options if not '1' to '9'
             return false;
         }
 
@@ -277,6 +304,11 @@ internal class Program
         public static implicit operator bool(Variable variable) => variable.Options != 0U;
     }
 
+    /// <summary>
+    /// Sudoku represented by 82 uints. The first 81 are the options for each of the variables.
+    /// The final uint stores the number of unsolved variables that have more than one option.
+    /// For speed, it is a ref struct placed "over" a Span on the stack.
+    /// </summary>
     private readonly ref struct Sudoku
     {
         public const int VariableLength = Variables;
@@ -327,7 +359,7 @@ internal class Program
 
                 for (var i = 0; i < data64.Length; i++)
                 {
-                    options += BitOperations.PopCount(data64[i]);
+                    options += BitOperations.PopCount(data64[i]); // Make use of the 64 bit PopCount
                 }
 
                 return options;
