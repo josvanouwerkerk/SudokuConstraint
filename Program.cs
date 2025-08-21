@@ -41,7 +41,7 @@ internal class Program
     {
         if (args.Length == 0)
         {
-            Console.WriteLine("Usage: Program <input_file> [<sudoku_offset>] [<output_file>]");
+            Console.WriteLine("Usage: SudokuConstraint <input_file> [<sudoku_offset>] [<output_file>]");
             Console.WriteLine();
             Console.WriteLine("Solves Sudoku's as Constraint Satisfaction Problem");
             Console.WriteLine("Input file should contain one Sudoku on each line");
