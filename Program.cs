@@ -65,7 +65,7 @@ internal class Program
 
         var input = inputLine.AsSpan()[offset..];
         var sudoku = new Sudoku(stackalloc uint[Sudoku.Length]);
-        sudoku.Initialize();
+        sudoku.Clear();
 
         for (var variable = 0; variable < Variables; variable++)
         {
@@ -99,64 +99,64 @@ internal class Program
     private static bool BackTrack(Sudoku sudoku)
     {
         var mostConstrained = -1;
-        var options = 10;
+        var optionCount = 10;
 
         for (var variable = 0; variable < Variables; variable++)
         {
             var current = sudoku[variable].OptionCount;
-            if (current < 2 || current >= options)
+            if (current < 2 || current >= optionCount)
                 continue;
 
-            (mostConstrained, options) = (variable, current);
+            (mostConstrained, optionCount) = (variable, current);
         }
 
         Debug.Assert(mostConstrained >= 0);
-        var value = sudoku[mostConstrained];
+        var options = sudoku[mostConstrained];
 
-        var newData = (Span<uint>)stackalloc uint[Sudoku.Length * options];
-        var newIndices = (Span<int>)stackalloc int[options];
-        var newOptions = (Span<int>)stackalloc int[options];
+        var newData = (Span<uint>)stackalloc uint[Sudoku.Length * optionCount];
+        var newIndices = (Span<int>)stackalloc int[optionCount];
+        var newOptions = (Span<int>)stackalloc int[optionCount];
 
-        var valueIndex = 0;
+        var index = 0;
 
-        while (value)
+        while (options)
         {
-            newIndices[valueIndex] = valueIndex;
+            newIndices[index] = index;
 
-            var currentSudoku = new Sudoku(newData[(valueIndex * Sudoku.Length)..]);
-            sudoku.CopyTo(currentSudoku);
+            var newSudoku = new Sudoku(newData[(index * Sudoku.Length)..]);
+            sudoku.CopyTo(newSudoku);
 
-            if (Constrain(currentSudoku, mostConstrained, value.FirstOptionMask))
+            if (Constrain(newSudoku, mostConstrained, options.FirstOption))
             {
-                if (currentSudoku.Unsolved == 0)
+                if (newSudoku.Unsolved == 0)
                 {
-                    currentSudoku.CopyTo(sudoku);
+                    newSudoku.CopyTo(sudoku);
                     return true;
                 }
 
-                newOptions[valueIndex] = currentSudoku.OptionCount;
+                newOptions[index] = newSudoku.OptionCount;
             }
 
-            Variable.ResetFirstOption(ref value);
-            valueIndex++;
+            Variable.ResetFirstOption(ref options);
+            index++;
         }
 
         newOptions.Sort(newIndices, (a, b) => -a.CompareTo(b));
 
         for (var i = 0; i < newIndices.Length; i++)
         {
-            var index = newIndices[i];
+            index = newIndices[i];
 
             if (newOptions[i] == 0)
                 continue;
 
-            var currentSudoku = new Sudoku(newData[(index * Sudoku.Length)..]);
+            var newSudoku = new Sudoku(newData[(index * Sudoku.Length)..]);
 
-            if (!BackTrack(currentSudoku))
-                continue;
-
-            currentSudoku.CopyTo(sudoku);
-            return true;
+            if (BackTrack(newSudoku))
+            {
+                newSudoku.CopyTo(sudoku);
+                return true;
+            }
         }
 
         return false;
@@ -170,37 +170,36 @@ internal class Program
         if (before == after) // No change
             return true;
 
-        var valueCount = after.OptionCount;
-        if (valueCount == 0) // Invalid, no values available anymore
+        var optionCount = after.OptionCount;
+        if (optionCount == 0) // Invalid, no values available anymore
             return false;
 
         sudoku[variable] = after;
 
-        if (valueCount == 1)
+        if (optionCount == 1)
         {
             sudoku.Unsolved--;
 
-            var columnStart = variable % 9;
-            for (var column = columnStart; column < Variables; column += 9)
+            var column = variable % 9;
+            for (var affected = column; affected < Variables; affected += 9)
             {
-                if (column != variable && !Constrain(sudoku, column, ~after))
+                if (affected != variable && !Constrain(sudoku, affected, ~after))
                     return false;
             }
 
-            var rowStart = 9 * (variable / 9);
-            for (var row = rowStart; row < rowStart + 9; row++)
+            var row = variable / 9 * 9;
+            for (var affected = row; affected < row + 9; affected++)
             {
-                if (row != variable && !Constrain(sudoku, row, ~after))
+                if (affected != variable && !Constrain(sudoku, affected, ~after))
                     return false;
             }
 
-            var groupStart = (variable % 9 / 3 * 3) + variable / 27 * 27;
-            for (var groupY = 0; groupY < 27; groupY += 9)
+            var group = column / 3 * 3 + variable / 27 * 27;
+            for (var vertical = group; vertical < group + 27; vertical += 9)
             {
-                for (var groupX = 0; groupX < 3; groupX++)
+                for (var affected = vertical; affected < vertical + 3; affected++)
                 {
-                    var group = groupStart + groupX + groupY;
-                    if (group != variable && !Constrain(sudoku, group, ~after))
+                    if (affected != variable && !Constrain(sudoku, affected, ~after))
                         return false;
                 }
             }
@@ -214,26 +213,26 @@ internal class Program
         public override string ToString() => $"Input file: {Input}\nOutput file: {Output}\nOffset to sudoku for each line: {Offset}";
     }
 
-    private readonly record struct Variable(uint Value)
+    private readonly record struct Variable(uint Options)
     {
         public const uint Mask = (1U << 9) - 1U;
 
         public int OptionCount
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => BitOperations.PopCount(Value);
+            get => BitOperations.PopCount(Options);
         }
 
         public bool HasSingleOption
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => BitOperations.IsPow2(Value);
+            get => OptionCount == 1;
         }
 
-        public Variable FirstOptionMask
+        public Variable FirstOption
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => new(Value & (0U - Value));
+            get => new(Options & (0U - Options));
         }
 
         public char Character
@@ -242,12 +241,14 @@ internal class Program
             get
             {
                 Debug.Assert(HasSingleOption);
-                return (char)('1' + BitOperations.TrailingZeroCount(Value));
+                return (char)('1' + BitOperations.TrailingZeroCount(Options));
             }
         }
 
+        public override string ToString() => $"{Options:B9}";
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static void ResetFirstOption(ref Variable variable) => variable &= new Variable(variable.Value - 1U);
+        public static void ResetFirstOption(ref Variable variable) => variable &= new Variable(variable.Options - 1U);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool Parse(char character, out Variable variable)
@@ -263,93 +264,17 @@ internal class Program
             return false;
         }
 
-        public override string ToString() => $"{Value:B9}";
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Variable operator ~(Variable value) => new(~value.Options);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Variable operator ~(Variable value) => new(~value.Value);
+        public static Variable operator &(Variable left, Variable right) => new(left.Options & right.Options);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Variable operator &(Variable left, Variable right) => new(left.Value & right.Value);
+        public static Variable operator |(Variable left, Variable right) => new(left.Options | right.Options);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Variable operator |(Variable left, Variable right) => new(left.Value | right.Value);
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static implicit operator bool(Variable variable) => variable.Value != 0U;
-    }
-
-    private readonly record struct Triplet(uint Value)
-    {
-        public const uint Mask = (1U << 27) - 1U;
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public Triplet(Variable variable, int index) : this(FromVariable(variable.Value, index)) { }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static uint FromVariable(uint variable, int index)
-        {
-            Debug.Assert(index >= 0 && index < 3);
-            var shift = 9 * index;
-            return ~(Variable.Mask << shift) | (variable << shift);
-        }
-
-        public Variable this[int index]
-        {
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get
-            {
-                Debug.Assert(index >= 0 && index < 3);
-                var shift = 9 * index;
-                return new((Value >> shift) & Variable.Mask);
-            }
-        }
-
-        public int Option1Count
-        {
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => BitOperations.PopCount(Value & Variable.Mask);
-        }
-
-        public int Option2Count
-        {
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => BitOperations.PopCount(Value & (Variable.Mask << 9));
-        }
-
-        public int Option3Count
-        {
-            [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => BitOperations.PopCount(Value & (Variable.Mask << 18));
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool Parse(ReadOnlySpan<char> input, out Triplet variable)
-        {
-            Debug.Assert(input.Length >= 3);
-            var result = Variable.Parse(input[0], out var variable1) & Variable.Parse(input[1], out var variable2) & Variable.Parse(input[2], out var variable3);
-            variable = new(variable1.Value | (variable2.Value << 9) | (variable3.Value << 18));
-            return result;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Write(Span<char> output)
-        {
-            Debug.Assert(output.Length >= 3);
-            output[0] = this[0].Character;
-            output[1] = this[1].Character;
-            output[2] = this[2].Character;
-        }
-
-        public override string ToString() => $"{this[0]}/{this[1]}/{this[2]}";
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Triplet operator ~(Triplet value) => new(~value.Value);
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Triplet operator &(Triplet left, Triplet right) => new(left.Value & right.Value);
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Triplet operator |(Triplet left, Triplet right) => new(left.Value | right.Value);
+        public static implicit operator bool(Variable variable) => variable.Options != 0U;
     }
 
     private readonly ref struct Sudoku
@@ -366,42 +291,29 @@ internal class Program
             Data = data[..Length];
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Initialize()
-        {
-            Data[..VariableLength].Fill(Variable.Mask); // Initialize to all 9 options possible for each variable
-            Unsolved = Variables;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void CopyTo(Sudoku destination)
-        {
-            Data.CopyTo(destination.Data);
-        }
-
-        public Variable this[int index]
+        public Variable this[int variable]
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
             {
-                Debug.Assert(index >= 0 && index < VariableLength);
-                return new(Data[index]);
+                Debug.Assert(variable >= 0 && variable < VariableLength);
+                return new(Data[variable]);
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             set
             {
-                Debug.Assert(index >= 0 && index < VariableLength);
-                Data[index] = value.Value;
+                Debug.Assert(variable >= 0 && variable < VariableLength);
+                Data[variable] = value.Options;
             }
         }
 
         public int Unsolved
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => (int)Data[^1];
+            get => (int)Data[VariableLength];
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            set => Data[^1] = (uint)value;
+            set => Data[VariableLength] = (uint)value;
         }
 
         public int OptionCount
@@ -409,14 +321,36 @@ internal class Program
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
             {
-                var options = 0;
-                var data64 = MemoryMarshal.Cast<uint, ulong>(Data[..^2]);
+                var options = BitOperations.PopCount(Data[VariableLength - 1]);
+                var data64 = MemoryMarshal.Cast<uint, ulong>(Data[..(VariableLength - 1)]);
+                Debug.Assert(data64.Length == 40);
+
                 for (var i = 0; i < data64.Length; i++)
                 {
                     options += BitOperations.PopCount(data64[i]);
                 }
-                options += BitOperations.PopCount(Data[^2]);
+
                 return options;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Clear()
+        {
+            for (var i = 0; i < Data.Length; i++)
+            {
+                Data[i] = Variable.Mask; // Initialize to all 9 options possible for each variable
+            }
+
+            Unsolved = Variables;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void CopyTo(Sudoku destination)
+        {
+            for (var i = 0; i < Data.Length && i < destination.Data.Length; i++)
+            {
+                destination.Data[i] = Data[i];
             }
         }
 
@@ -440,13 +374,13 @@ internal class Program
         {
             for (var y = 0; y < 9; y++)
             {
-                var count = 0U;
+                var mask = 0U;
                 for (var x = 0; x < 9; x++)
                 {
-                    count ^= Data[y * 9 + x];
+                    mask ^= Data[y * 9 + x];
                 }
 
-                if (count != Variable.Mask)
+                if (mask != Variable.Mask)
                     return false;
             }
 
@@ -457,13 +391,13 @@ internal class Program
         {
             for (var x = 0; x < 9; x++)
             {
-                var count = 0U;
+                var mask = 0U;
                 for (var y = 0; y < 9; y++)
                 {
-                    count ^= Data[y * 9 + x];
+                    mask ^= Data[y * 9 + x];
                 }
 
-                if (count != Variable.Mask)
+                if (mask != Variable.Mask)
                     return false;
             }
 
@@ -477,16 +411,16 @@ internal class Program
                 var gx = 3 * (group % 3);
                 var gy = 3 * (group / 3);
 
-                var count = 0U;
+                var mask = 0U;
                 for (var entry = 0; entry < 9; entry++)
                 {
                     var ex = entry % 3;
                     var ey = entry / 3;
 
-                    count ^= Data[(gy + ey) * 9 + gx + ex];
+                    mask ^= Data[(gy + ey) * 9 + gx + ex];
                 }
 
-                if (count != Variable.Mask)
+                if (mask != Variable.Mask)
                     return false;
             }
 
