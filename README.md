@@ -1,7 +1,7 @@
-This repository contains a C# solver for standard Sudoku puzzles. (Standard means 9 by 9 with regular 3 by 3 groups.)
+This repository contains a C# command line solver for standard Sudoku puzzles. (Standard meaning 9 by 9 with 3 by 3 groups.)
 The solver reads the Sudoku's from a file and writes the solved Sudoku's to another file.
 
-Usage: Program <input_file> [<sudoku_offset>] [<output_file>]
+Usage: SudokuConstraint <input_file> [<sudoku_offset>] [<output_file>]
 
 - Solves Sudoku's as Constraint Satisfaction Problem
 - Input file should contain one Sudoku on each line
@@ -11,9 +11,11 @@ Usage: Program <input_file> [<sudoku_offset>] [<output_file>]
 - Output file defaults to the input file with a "_solved" suffix
 
 No files with Sudoku puzzles are provided in this repository. A good source can be found here:
+
 https://github.com/grantm/sudoku-exchange-puzzle-bank
 
-For these files the sudoku_offset parameter should be set to 13
+For these specific files the sudoku_offset parameter should be set to 13. For example:
 
+- SudokuConstraint.exe medium.txt 13
 
 For the medium set of puzzles above, this solver solves about 200.000 Sudoku's per second on my machine.
