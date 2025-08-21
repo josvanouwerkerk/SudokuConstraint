@@ -11,7 +11,7 @@ Usage: Program <input_file> [<sudoku_offset>] [<output_file>]
 - Output file defaults to the input file with a "_solved" suffix
 
 No files with Sudoku puzzles are provided in this repository. A good source can be found here:
-https://github.com/grantm/sudoku-exchange-puzzle-bank?tab=readme-ov-file
+https://github.com/grantm/sudoku-exchange-puzzle-bank
 
 For these files the sudoku_offset parameter should be set to 13
 
